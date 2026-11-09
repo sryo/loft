@@ -40,21 +40,26 @@ function moved(a, b, skip = new Set()) {
 const focusChanges = (a, b) => (a.front !== b.front) + (a.cursor.join() !== b.cursor.join());
 
 const safari = (js) => jxa(`const s = Application("Safari"); ${js}`);
+// The id of the window whose only tab shows url, else null.
+const ownSafari = (url) => safari(`const w = s.windows().find((w) => w.tabs.length === 1 && w.tabs[0].url() === ${JSON.stringify(url)}); JSON.stringify(w ? w.id() : null)`);
+const closeSafari = (id, url) => safari(`const w = s.windows.byId(${id}); if (w.tabs.length === 1 && w.tabs[0].url() === ${JSON.stringify(url)}) w.close(); "1"`);
 const sjs = (sid, js) => safari(`JSON.stringify(s.doJavaScript(${JSON.stringify(js)}, { in: s.windows.byId(${sid}).currentTab }))`);
 const sTicks = async (sid) => {
-  const a = Number(JSON.parse(sjs(sid, "document.body.dataset.ticks")));
+  const a = Number(sjs(sid, "document.body.dataset.ticks"));
   const t = Date.now();
   await sleep(2000);
-  const b = Number(JSON.parse(sjs(sid, "document.body.dataset.ticks")));
-  return { rate: ((b - a) * 1000) / (Date.now() - t), vis: JSON.parse(sjs(sid, "document.visibilityState")) };
+  const b = Number(sjs(sid, "document.body.dataset.ticks"));
+  return { rate: ((b - a) * 1000) / (Date.now() - t), vis: sjs(sid, "document.visibilityState") };
 };
+// Closes the probe's browser window only while its one tab still shows the probe page.
+const closeOwn = (id) => jxa(`const w = Application(${JSON.stringify(BROWSER)}).windows.byId(${id}); if (w.tabs.length === 1 && w.tabs[0].url().includes("?loft-probe")) w.close(); "1"`);
 const tab = (wid, js) => jxa(`const w = Application(${JSON.stringify(BROWSER)}).windows.byId(${wid}); JSON.stringify(w.activeTab.execute({ javascript: ${JSON.stringify(js)} }))`);
 const ticksPerSec = async (wid) => {
-  const a = Number(JSON.parse(tab(wid, "document.body.dataset.ticks")));
+  const a = Number(tab(wid, "document.body.dataset.ticks"));
   const t = Date.now();
   await sleep(2000);
-  const b = Number(JSON.parse(tab(wid, "document.body.dataset.ticks")));
-  return { rate: ((b - a) * 1000) / (Date.now() - t), vis: JSON.parse(tab(wid, "document.visibilityState")) };
+  const b = Number(tab(wid, "document.body.dataset.ticks"));
+  return { rate: ((b - a) * 1000) / (Date.now() - t), vis: tab(wid, "document.visibilityState") };
 };
 
 const fixture = readFileSync(join(ROOT, "bench", "fixture.html"));
@@ -64,7 +69,7 @@ const url = `http://127.0.0.1:${server.address().port}/?loft-probe`;
 
 const m = (kind, dir, samples, extra = {}) => ({ kind, dir, samples, ...extra });
 const metrics = {};
-let wid = null, sid = null, perch = null;
+let wid = null, sid = null, sUrl = null, perch = null;
 const s0 = scene();
 try {
   // Goal 1 and 3: up.
@@ -77,14 +82,20 @@ try {
   const rss = Number(execFileSync("ps", ["-o", "rss=", "-p", String(st.pid)], { encoding: "utf8" })) / 1024;
 
   // Goal 2: timers in a Safari window on the loft, then the same window minimized.
-  sid = safari(`s.make({ new: "document", withProperties: { url: ${JSON.stringify(url + "-timers")} } }); const w = s.windows[0]; w.bounds = { x: ${st.x + 60}, y: ${st.y + 60}, width: 1200, height: 800 }; JSON.stringify(w.id())`);
+  // The probe's window is found by its own URL, never by position: Safari's
+  // front window may be the user's.
+  sUrl = `${url}-timers-${process.pid}`;
+  safari(`s.make({ new: "document", withProperties: { url: ${JSON.stringify(sUrl)} } }); "1"`);
+  for (let i = 0; i < 40 && !sid; i++) { await sleep(100); sid = ownSafari(sUrl); }
+  if (!sid) throw new Error("could not find the probe's own Safari window");
+  safari(`s.windows.byId(${sid}).bounds = { x: ${st.x + 60}, y: ${st.y + 60}, width: 1200, height: 800 }; "1"`);
   await sleep(2500);
   console.error(`probe: ${TIMERS} window ${sid} at ${JSON.stringify(safari(`JSON.stringify(s.windows.byId(${sid}).bounds())`))}`);
   const visible = await sTicks(sid);
   safari(`s.windows.byId(${sid}).miniaturized = true; "1"`);
   await sleep(1500);
   const hidden = await sTicks(sid);
-  safari(`s.windows.byId(${sid}).close(); "1"`);
+  closeSafari(sid, sUrl);
   sid = null;
   console.error(`probe: ticks/s on the loft ${visible.rate.toFixed(1)} (${visible.vis}), minimized ${hidden.rate.toFixed(1)} (${hidden.vis})`);
 
@@ -105,14 +116,14 @@ try {
     const r = JSON.parse(text(await perch.call("click", { target: { tabId }, selector: `#b${i}`, trusted: true })));
     const after = scene();
     clickFocus += focusChanges(before, after);
-    const page = JSON.parse(JSON.parse(tab(wid, "document.body.dataset.hits")));
+    const page = JSON.parse(tab(wid, "document.body.dataset.hits"));
     const landed = r.ok && r.hit === true && page.some((h) => h.id === `b${i}` && h.trusted);
     hits += landed;
     if (!landed) console.error(`probe: click ${i}: ${JSON.stringify(r)}`);
   }
   console.error(`probe: ${hits}/10 trusted clicks landed, ${clickFocus} foreground or cursor changes`);
 
-  jxa(`Application(${JSON.stringify(BROWSER)}).windows.byId(${wid}).close(); "1"`);
+  closeOwn(wid);
   wid = null;
   await sleep(500);
   const s2 = scene();
@@ -143,8 +154,8 @@ try {
   metrics["up ms"] = m("time", "lower", [u.ms]);
   metrics["down ms"] = m("time", "lower", [d.ms]);
 } finally {
-  if (sid) try { safari(`s.windows.byId(${sid}).close(); "1"`); } catch {}
-  if (wid) try { jxa(`Application(${JSON.stringify(BROWSER)}).windows.byId(${wid}).close(); "1"`); } catch {}
+  if (sid) try { closeSafari(sid, sUrl); } catch {}
+  if (wid) try { closeOwn(wid); } catch {}
   perch?.close();
   loft("down");
   server.close();
