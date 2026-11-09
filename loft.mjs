@@ -14,10 +14,15 @@ const HOME = process.env.LOFT_HOME || join(homedir(), "Library", "Application Su
 const STATE = join(HOME, "holder.json");
 const HOLDER = process.env.LOFT_HOLDER ? JSON.parse(process.env.LOFT_HOLDER) : ["osascript", "-l", "JavaScript", join(ROOT, "holder.js")];
 const WAIT_MS = Number(process.env.LOFT_WAIT_MS || 5000);
-const USAGE = "usage: loft up [WIDTHxHEIGHT] | status | down";
+const USAGE = "usage: loft up [WIDTHxHEIGHT] | status | down (--json on up and status)";
+// What holder.js sets on the display; AGENTS.md documents it as stable.
+const IDENTITY = { vendor: 0x6c66, product: 0x7466, name: "loft" };
 
 const fail = (msg, code = 1) => { process.stderr.write(`loft: ${msg}\n`); process.exit(code); };
 const line = (s) => `loft is up: ${s.w}x${s.h} at ${s.x},${s.y} (display ${s.displayId})`;
+const json = (s) => JSON.stringify(s
+  ? { up: true, displayId: s.displayId, ...IDENTITY, bounds: { x: s.x, y: s.y, w: s.w, h: s.h } }
+  : { up: false, displayId: null, ...IDENTITY, bounds: null });
 
 function isHolder(s) {
   const r = spawnSync("ps", ["-o", "command=", "-p", String(s.pid)], { encoding: "utf8" });
@@ -40,10 +45,10 @@ function parseSize(arg = "1920x1200") {
   return [w, h];
 }
 
-async function up(sizeArg) {
+async function up(sizeArg, asJson) {
   const [w, h] = parseSize(sizeArg);
   const s = current();
-  if (s) return console.log(`${line(s)}, already up`);
+  if (s) return console.log(asJson ? json(s) : `${line(s)}, already up`);
   const child = spawn(HOLDER[0], [...HOLDER.slice(1), String(w), String(h)], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
   const answer = await new Promise((resolve) => {
     let buf = "";
@@ -64,7 +69,7 @@ async function up(sizeArg) {
   const state = { pid: child.pid, cmd: HOLDER[HOLDER.length - 1], displayId: answer.displayId, x: answer.x, y: answer.y, w: answer.w, h: answer.h, started: new Date().toISOString() };
   mkdirSync(HOME, { recursive: true });
   writeFileSync(STATE, JSON.stringify(state));
-  console.log(line(state));
+  console.log(asJson ? json(state) : line(state));
 }
 
 async function down() {
@@ -78,8 +83,11 @@ async function down() {
   console.log("loft is down");
 }
 
-const [cmd, arg] = process.argv.slice(2);
-if (cmd === "up") await up(arg);
+const args = process.argv.slice(2);
+const asJson = args.includes("--json");
+const [cmd, arg] = args.filter((a) => a !== "--json");
+if (cmd === "up") await up(arg, asJson);
 else if (cmd === "down") await down();
+else if (cmd === "status" && asJson) { const s = current(); console.log(json(s)); if (!s) process.exitCode = 3; }
 else if (cmd === "status") { const s = current(); console.log(s ? line(s) : "loft is down"); }
 else fail(USAGE, 2);

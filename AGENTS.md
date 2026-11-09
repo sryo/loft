@@ -17,6 +17,7 @@ bench/fixture.html# the page the probe drives
 - Contract (stable; consumers may rely on it, changing it is a breaking change):
   - Display identity, set in holder.js: vendor `0x6c66`, product `0x7466`, name `"loft"` (the name macOS reports is unverified live). The `displayId` is the CGDirectDisplayID of this run; it changes with every `up`.
   - holder.json shape: `{pid, cmd, displayId, x, y, w, h, started}`, `started` an ISO time. `x, y, w, h` are the bounds as recorded, frozen at `up`; if the user rearranges displays they go stale, so read live bounds with `CGDisplayBounds(displayId)`.
+  - `loft status --json` and `loft up --json` print `{up, displayId, vendor, product, name, bounds: {x, y, w, h}}` from that record. `status --json` exits 3 when down (`displayId` and `bounds` null); plain `status` always exits 0.
 - The holder sets the prohibited activation policy, so it has no Dock icon and never activates.
 - `sizeInMillimeters` is set for about 96 dpi so macOS treats the display as 1x.
 - loft never moves windows. Callers park their own windows by setting their bounds inside the display's rect.
