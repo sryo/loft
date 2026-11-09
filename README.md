@@ -16,6 +16,8 @@ loft status    # whether it's up, its size and where it sits
 loft down      # remove it
 ```
 
+Scripts and agents can count on the loft's identity staying the same: vendor `0x6c66`, product `0x7466`, and the `displayId` it reports while up. Its name is `"loft"`, though what macOS shows for it is unverified. The record in `~/Library/Application Support/loft/holder.json` is stable too. Its bounds are the ones from `up` and don't follow you rearranging displays.
+
 loft never moves your windows. An agent puts its own windows on the loft and takes them back.
 
 ## Works with
