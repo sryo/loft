@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>loft probe</title>
+<style>
+  body { margin: 0; font: 14px system-ui; }
+  button { position: absolute; width: 90px; height: 40px; }
+</style>
+<body data-ticks="0" data-hits="[]">
+<script>
+  // Ten targets spread over the viewport, so a wrong window origin misses.
+  for (let i = 0; i < 10; i++) {
+    const b = document.createElement("button");
+    b.id = "b" + i;
+    b.textContent = "target " + i;
+    b.style.left = (20 + (i % 5) * 200) + "px";
+    b.style.top = (20 + Math.floor(i / 5) * 300 + (i % 5) * 40) + "px";
+    b.addEventListener("mousedown", (e) => {
+      const hits = JSON.parse(document.body.dataset.hits);
+      hits.push({ id: b.id, trusted: e.isTrusted });
+      document.body.dataset.hits = JSON.stringify(hits);
+    });
+    document.body.appendChild(b);
+  }
+  // A 10ms timer: about 100 ticks a second when visible, about 1 when throttled.
+  let ticks = 0;
+  setInterval(() => { document.body.dataset.ticks = ++ticks; }, 10);
+</script>
