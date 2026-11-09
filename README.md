@@ -1,3 +1,5 @@
+<img src="logo.svg" alt="loft" width="128">
+
 # loft
 
 loft gives your agents a screen of their own on your Mac, so their windows stop crowding yours. It adds a monitor that only exists in software: windows put there stay on, painting and never covered, but you never see them. When you stop loft, the monitor is gone.
