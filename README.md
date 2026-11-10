@@ -6,7 +6,7 @@ loft gives your agents a screen of their own on your Mac, so their windows stop 
 
 ## Install
 ```bash
-git clone https://github.com/sryo/loft && cd loft && npm link
+curl -fsSL https://raw.githubusercontent.com/sryo/loft/main/install.sh | bash
 ```
 
 ## Use

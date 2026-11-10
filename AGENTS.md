@@ -6,6 +6,7 @@ How loft is built and how to work on it. Goals and how they are measured are in 
 ```
 loft.mjs          # the CLI: up, status, list, down; starts and stops holders
 holder.js         # JXA: adds the virtual display and keeps it while it lives
+install.sh        # curl | bash installer: clone or pull into ~/.loft, npm link
 test/             # node:test against a fake holder (test/fakes), no display needed
 bench/probe.mjs   # live probe for every How we know row
 bench/fixture.html# the page the probe drives
