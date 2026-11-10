@@ -18,7 +18,7 @@ When two goals conflict, the higher one wins.
 | Goal | Metric | Where | Run |
 |---|---|---|---|
 | 1 | user windows moved, foreground or cursor changes, displays left after a kill | `bench/probe.mjs` | live: `node bench/probe.mjs` |
-| 2 | timer ticks per second on the loft over minimized, trusted click hits out of 10 | `bench/probe.mjs` | live: `node bench/probe.mjs` |
+| 2 | timer ticks per second on the loft over minimized, trusted click hits out of 10; ticks, frames per second, page visible and click hits with the screen locked and unlocked | `bench/probe.mjs` | live: `node bench/probe.mjs` |
 | 3 | holder memory, up and down time | `bench/probe.mjs` | live: `node bench/probe.mjs` |
 
 Caps: `all=ask quality=hard time=ask+10%`

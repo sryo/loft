@@ -3,7 +3,8 @@
 // checks runs with timer throttling off) and background trusted clicks
 // (Canary, through perch), then removes the windows and the loft, and checks that the
 // user's windows, frontmost app and cursor never moved and that a killed
-// holder leaves no display.
+// holder leaves no display. Run once locked and once unlocked: the lock row
+// names its metrics by the session's state.
 //   node bench/probe.mjs [--yes] [out.json]   default: ~/.fium/runs/loft/<commit>[-dirty].json
 // Creates a display and a browser window: run it while the user is away.
 import { spawnSync, execFileSync } from "node:child_process";
@@ -44,24 +45,27 @@ const safari = (js) => jxa(`const s = Application("Safari"); ${js}`);
 const ownSafari = (url) => safari(`const w = s.windows().find((w) => w.tabs.length === 1 && w.tabs[0].url() === ${JSON.stringify(url)}); JSON.stringify(w ? w.id() : null)`);
 const closeSafari = (id, url) => safari(`const w = s.windows.byId(${id}); if (w.tabs.length === 1 && w.tabs[0].url() === ${JSON.stringify(url)}) w.close(); "1"`);
 const sjs = (sid, js) => safari(`JSON.stringify(s.doJavaScript(${JSON.stringify(js)}, { in: s.windows.byId(${sid}).currentTab }))`);
-const sTicks = async (sid) => {
-  const a = Number(sjs(sid, "document.body.dataset.ticks"));
+// Timer ticks and animation frames per second over 2s, and the page's visibility.
+async function rates(run) {
+  const read = () => [Number(run("document.body.dataset.ticks")), Number(run("document.body.dataset.frames"))];
+  const [a, fa] = read();
   const t = Date.now();
   await sleep(2000);
-  const b = Number(sjs(sid, "document.body.dataset.ticks"));
-  return { rate: ((b - a) * 1000) / (Date.now() - t), vis: sjs(sid, "document.visibilityState") };
-};
+  const [b, fb] = read();
+  const s = (Date.now() - t) / 1000;
+  return { rate: (b - a) / s, frames: (fb - fa) / s, vis: run("document.visibilityState") };
+}
+// Whether the session's screen is locked (IOConsoleUsers, as perch reads it) and the main display asleep.
+const screenState = () => jxa(`ObjC.import("CoreGraphics");
+ObjC.bindFunction("IORegistryGetRootEntry", ["unsigned int", ["unsigned int"]]);
+ObjC.bindFunction("IORegistryEntryCreateCFProperty", ["id", ["unsigned int", "id", "void *", "unsigned int"]]);
+const u = ObjC.deepUnwrap($.IORegistryEntryCreateCFProperty($.IORegistryGetRootEntry(0), $("IOConsoleUsers"), $(), 0)) || [];
+JSON.stringify({ locked: u.some((x) => x && x.CGSSessionScreenIsLocked === true), asleep: Number($.CGDisplayIsAsleep($.CGMainDisplayID())) === 1 })`);
+const sTicks = (sid) => rates((js) => sjs(sid, js));
 // Closes the probe's browser window only while its one tab still shows the probe page.
 const closeOwn = (id) => jxa(`const w = Application(${JSON.stringify(BROWSER)}).windows.byId(${id}); if (w.tabs.length === 1 && w.tabs[0].url().includes("?loft-probe")) w.close(); "1"`);
 const tab = (wid, js) => jxa(`const w = Application(${JSON.stringify(BROWSER)}).windows.byId(${wid}); JSON.stringify(w.activeTab.execute({ javascript: ${JSON.stringify(js)} }))`);
-const ticksPerSec = async (wid) => {
-  const a = Number(tab(wid, "document.body.dataset.ticks"));
-  const t = Date.now();
-  await sleep(2000);
-  const b = Number(tab(wid, "document.body.dataset.ticks"));
-  return { rate: ((b - a) * 1000) / (Date.now() - t), vis: tab(wid, "document.visibilityState") };
-};
-
+const ticksPerSec = (wid) => rates((js) => tab(wid, js));
 const fixture = readFileSync(join(ROOT, "bench", "fixture.html"));
 const server = createServer((_, res) => { res.setHeader("content-type", "text/html"); res.end(fixture); });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -71,6 +75,9 @@ const m = (kind, dir, samples, extra = {}) => ({ kind, dir, samples, ...extra })
 const metrics = {};
 let wid = null, sid = null, sUrl = null, perch = null;
 const s0 = scene();
+const screen0 = screenState();
+console.error(`probe: screen ${JSON.stringify(screen0)}`);
+let canary = null;
 try {
   // Goal 1 and 3: up.
   const u = loft("up");
@@ -102,6 +109,7 @@ try {
   // The click window, on the loft.
   wid = jxa(`const app = Application(${JSON.stringify(BROWSER)}); const w = app.Window().make(); w.bounds = { x: ${st.x + 40}, y: ${st.y + 40}, width: 1200, height: 800 }; w.activeTab.url = ${JSON.stringify(url)}; JSON.stringify(w.id())`);
   await sleep(2500);
+  canary = await ticksPerSec(wid);
   console.error(`probe: ${BROWSER} window ${wid} at ${JSON.stringify(jxa(`JSON.stringify(Application(${JSON.stringify(BROWSER)}).windows.byId(${wid}).bounds())`))}`);
 
   // Goal 2: background trusted clicks through perch.
@@ -151,6 +159,17 @@ try {
   metrics["loft page visible"] = m("quality", "higher", [visible.vis === "visible" ? 1 : 0]);
   metrics["trusted click hits"] = m("quality", "higher", [hits]);
   metrics["holder memory MB"] = m("bytes", "lower", [Math.round(rss * 10) / 10], { noisy: true });
+  // The same window measurements under the session's lock state, so a run while
+  // locked and one while unlocked compare: does a locked Mac still need a room?
+  const screen1 = screenState();
+  if (screen1.locked === screen0.locked) {
+    const as = screen0.locked ? "locked" : "unlocked";
+    console.error(`probe: ${as}: ticks/s ${visible.rate.toFixed(1)}, frames/s ${visible.frames.toFixed(1)} (${visible.vis}) in ${TIMERS}, ${canary.frames.toFixed(1)} (${canary.vis}) in ${BROWSER}, ${hits}/10 clicks`);
+    metrics[`${as}: loft ticks per second`] = m("quality", "higher", [Math.round(visible.rate * 10) / 10], { noisy: true });
+    metrics[`${as}: loft page visible`] = m("quality", "higher", [(visible.vis === "visible") + (canary.vis === "visible")]);
+    metrics[`${as}: loft frames per second`] = m("quality", "higher", [Math.round(Math.min(visible.frames, canary.frames) * 10) / 10], { noisy: true });
+    metrics[`${as}: trusted click hits`] = m("quality", "higher", [hits]);
+  } else console.error(`probe: the lock changed during the run (${JSON.stringify(screen0)} -> ${JSON.stringify(screen1)}); no lock row`);
   metrics["up ms"] = m("time", "lower", [u.ms]);
   metrics["down ms"] = m("time", "lower", [d.ms]);
 } finally {
@@ -167,5 +186,5 @@ const dirty = commit ? git("status", "--porcelain") !== "" : false;
 const runs = join(process.env.FIUM_HOME || join(homedir(), ".fium"), "runs", "loft");
 const out = outArg ?? join(runs, `${(commit ?? "unstamped").slice(0, 12)}${dirty ? "-dirty" : ""}.json`);
 mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, JSON.stringify({ commit, dirty, metrics, limits: {} }, null, 2));
+writeFileSync(out, JSON.stringify({ commit, dirty, screen: screen0, metrics, limits: {} }, null, 2));
 console.log(out);

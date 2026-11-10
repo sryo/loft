@@ -5,7 +5,7 @@
   body { margin: 0; font: 14px system-ui; }
   button { position: absolute; width: 90px; height: 40px; }
 </style>
-<body data-ticks="0" data-hits="[]">
+<body data-ticks="0" data-frames="0" data-hits="[]">
 <script>
   // Ten targets spread over the viewport, so a wrong window origin misses.
   for (let i = 0; i < 10; i++) {
@@ -24,4 +24,8 @@
   // A 10ms timer: about 100 ticks a second when visible, about 1 when throttled.
   let ticks = 0;
   setInterval(() => { document.body.dataset.ticks = ++ticks; }, 10);
+  // requestAnimationFrame runs only while the page is painted: about 60 a second, 0 when not.
+  let frames = 0;
+  const frame = () => { document.body.dataset.frames = ++frames; requestAnimationFrame(frame); };
+  requestAnimationFrame(frame);
 </script>
