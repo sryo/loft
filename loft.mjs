@@ -79,10 +79,13 @@ async function up(id, sizeArg, asJson, owner) {
     }
     return console.log(asJson ? JSON.stringify(json(id, s)) : `${line(id, s)}, already up`);
   }
-  // The default loft keeps serial 1; a named one takes the lowest serial no live loft has.
-  const taken = new Set(live().map(([, l]) => l.serial ?? 1));
-  let serial = 1;
-  if (id !== DEFAULT) { serial = 2; while (taken.has(serial)) serial++; }
+  // macOS remembers a mode per display serial and brings a new display up in it
+  // whenever that mode fits (live: serial 2, once 1280x800, made 1440x900 and
+  // 1920x1200 come up 1280x800). So the serial comes from the size, plus a step
+  // for each live loft already that size.
+  const taken = new Set(live().map(([, l]) => l.serial));
+  let serial = w * 10000 + h;
+  while (taken.has(serial)) serial += 100000000;
   const child = spawn(HOLDER[0], [...HOLDER.slice(1), String(w), String(h), String(serial), ...(owner ? [String(owner)] : [])], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
   const answer = await new Promise((resolve) => {
     let buf = "";
@@ -97,6 +100,11 @@ async function up(id, sizeArg, asJson, owner) {
   if (!answer?.ok) {
     try { process.kill(child.pid, "SIGKILL"); } catch {}
     fail(answer ? "display_failed" : "holder_timeout", answer ? `could not add the display: ${answer.error}` : `the holder did not answer within ${WAIT_MS}ms; stopped it`);
+  }
+  // A loft is the size asked for or nothing (holder.js sets the mode; this is the check).
+  if (answer.w !== w || answer.h !== h) {
+    try { process.kill(child.pid, "SIGKILL"); } catch {}
+    fail("display_size", `macOS gave the display ${answer.w}x${answer.h}, not ${w}x${h}`);
   }
   child.stdout.destroy();
   child.unref();

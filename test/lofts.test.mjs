@@ -35,17 +35,16 @@ test("M1: up --id makes a loft of that size beside the default one", (t) => {
   assert.ok(existsSync(join(home, "holder.json")), "the default loft is untouched");
 });
 
-test("M1: each loft gets its own display serial; the default keeps 1", (t) => {
+test("M1: a loft's display serial comes from its size, so macOS never restores another size's mode; two of one size differ", (t) => {
   const { run, rec, home } = setup(t);
   run("up");
   run("up", "1280x800", "--id", "a");
-  run("up", "1024x768", "--id", "b");
+  run("up", "1280x800", "--id", "b");
+  run("up", "1024x768", "--id", "c");
   const def = JSON.parse(readFileSync(join(home, "holder.json"), "utf8"));
-  const serials = [def.serial, rec("a").serial, rec("b").serial];
-  assert.equal(serials[0], 1);
-  assert.equal(new Set(serials).size, 3, `serials ${serials}`);
+  assert.deepEqual([def.serial, rec("a").serial, rec("b").serial, rec("c").serial], [19201200, 12800800, 112800800, 10240768]);
   // The fake holder echoes the serial it was given as displayId + serial.
-  assert.equal(rec("a").displayId, 77 + rec("a").serial);
+  assert.equal(rec("b").displayId, 77 + rec("b").serial);
 });
 
 test("M1: --new picks a free id and prints it", (t) => {
@@ -172,4 +171,16 @@ test("O1: an owner that isn't running starts nothing", (t) => {
     assert.equal(JSON.parse(r.stdout).code, "bad_owner");
   }
   assert.equal(run("list", "--json").stdout.trim(), "[]");
+});
+
+// macOS can give a virtual display another of its modes than the one applied
+// (live: 1440x900 came up 1280x800). A loft is the size asked for or nothing.
+test("Z1: a display that came up at another size is refused, with nothing left running", (t) => {
+  const { run, home } = setup(t, { FAKE_HOLDER: "smaller" });
+  const r = run("up", "1440x900", "--new", "--json");
+  assert.equal(r.status, 1, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { ok: false, code: "display_size", error: "macOS gave the display 1280x800, not 1440x900" });
+  assert.equal(run("list", "--json").stdout.trim(), "[]");
+  assert.equal(spawnSync("pgrep", ["-f", FAKE], { encoding: "utf8" }).stdout.trim(), "");
+  void home;
 });
