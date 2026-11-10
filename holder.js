@@ -1,5 +1,5 @@
 // The loft holder: adds a virtual display and keeps it while this osascript
-// lives. Run as `osascript -l JavaScript holder.js WIDTH HEIGHT`. It answers
+// lives. Run as `osascript -l JavaScript holder.js WIDTH HEIGHT [SERIAL]`. It answers
 // one JSON line on stdout, then serves the main run loop until killed; the
 // display goes when the process does, however it ends.
 ObjC.import("AppKit");
@@ -28,7 +28,7 @@ function run(argv) {
   desc.sizeInMillimeters = { width: Math.round(w * 25.4 / 96), height: Math.round(h * 25.4 / 96) };
   desc.vendorID = 0x6c66;
   desc.productID = 0x7466;
-  desc.serialNum = 1;
+  desc.serialNum = Number(argv[2]) || 1;
 
   const display = $.CGVirtualDisplay.alloc.initWithDescriptor(desc);
   if (!display || display.isNil() || !display.displayID) { say({ ok: false, error: "CGVirtualDisplay returned no display" }); return; }

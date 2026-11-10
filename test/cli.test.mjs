@@ -113,7 +113,7 @@ test("an unknown command lists the commands", (t) => {
   const { run } = setup(t);
   const r = run("sideways");
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /usage: loft up \[WIDTHxHEIGHT\] \| status \| down/);
+  assert.match(r.stderr, /usage: loft up \[WIDTHxHEIGHT\] \[--id <name> \| --new\] \| status \[<name>\] \| list \| down/);
 });
 
 const ID = { vendor: 0x6c66, product: 0x7466, name: "loft" };
@@ -122,16 +122,16 @@ test("L2: status --json reports the loft as recorded, exit 0 up and 3 down", (t)
   const { run } = setup(t);
   let r = run("status", "--json");
   assert.equal(r.status, 3, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { up: false, displayId: null, ...ID, bounds: null });
+  assert.deepEqual(JSON.parse(r.stdout), { up: false, id: "default", displayId: null, ...ID, bounds: null });
   run("up", "2560x1440");
   r = run("status", "--json");
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { up: true, displayId: 77, ...ID, bounds: { x: 1512, y: 0, w: 2560, h: 1440 } });
+  assert.deepEqual(JSON.parse(r.stdout), { up: true, id: "default", displayId: 77, ...ID, bounds: { x: 1512, y: 0, w: 2560, h: 1440 } });
 });
 
 test("L2: up --json prints the same object, with or without a size", (t) => {
   const { run } = setup(t);
-  const want = { up: true, displayId: 77, ...ID, bounds: { x: 1512, y: 0, w: 1920, h: 1200 } };
+  const want = { up: true, id: "default", displayId: 77, ...ID, bounds: { x: 1512, y: 0, w: 1920, h: 1200 } };
   let r = run("up", "--json");
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(JSON.parse(r.stdout), want);

@@ -1,28 +1,38 @@
 #!/usr/bin/env node
-// loft: up, status and down for the hidden display. The display lives in the
-// holder process (holder.js); this CLI starts it detached, records it in
-// $LOFT_HOME/holder.json and stops it. A recorded pid is signalled only while
-// its command line still names the holder.
+// loft: up, status, list and down for hidden displays. Each display lives in a
+// holder process (holder.js); this CLI starts it detached, records it and stops
+// it. The default loft is recorded in $LOFT_HOME/holder.json; a named one
+// (--id) in $LOFT_HOME/lofts/<id>.json, with a display serial of its own so
+// macOS keeps them apart. A recorded pid is signalled only while its command
+// line still names the holder.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const HOME = process.env.LOFT_HOME || join(homedir(), "Library", "Application Support", "loft");
-const STATE = join(HOME, "holder.json");
+const LOFTS = join(HOME, "lofts");
 const HOLDER = process.env.LOFT_HOLDER ? JSON.parse(process.env.LOFT_HOLDER) : ["osascript", "-l", "JavaScript", join(ROOT, "holder.js")];
 const WAIT_MS = Number(process.env.LOFT_WAIT_MS || 5000);
-const USAGE = "usage: loft up [WIDTHxHEIGHT] | status | down (--json on up and status)";
+const USAGE = "usage: loft up [WIDTHxHEIGHT] [--id <name> | --new] | status [<name>] | list | down [<name> | --all] (--json on up, status and list)";
 // What holder.js sets on the display; AGENTS.md documents it as stable.
 const IDENTITY = { vendor: 0x6c66, product: 0x7466, name: "loft" };
+const DEFAULT = "default";
+const ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 const fail = (msg, code = 1) => { process.stderr.write(`loft: ${msg}\n`); process.exit(code); };
-const line = (s) => `loft is up: ${s.w}x${s.h} at ${s.x},${s.y} (display ${s.displayId})`;
-const json = (s) => JSON.stringify(s
-  ? { up: true, displayId: s.displayId, ...IDENTITY, bounds: { x: s.x, y: s.y, w: s.w, h: s.h } }
-  : { up: false, displayId: null, ...IDENTITY, bounds: null });
+const file = (id) => (id === DEFAULT ? join(HOME, "holder.json") : join(LOFTS, `${id}.json`));
+const line = (id, s) => `${id === DEFAULT ? "loft" : `loft ${id}`} is up: ${s.w}x${s.h} at ${s.x},${s.y} (display ${s.displayId})`;
+const json = (id, s) => (s
+  ? { up: true, id, displayId: s.displayId, ...IDENTITY, bounds: { x: s.x, y: s.y, w: s.w, h: s.h } }
+  : { up: false, id, displayId: null, ...IDENTITY, bounds: null });
+
+function checkId(id) {
+  if (id === DEFAULT || !ID_RE.test(id ?? "")) fail(`id must be 1 to 32 of a-z, 0-9 and -, starting with a letter or digit, and not "${DEFAULT}" (got "${id ?? ""}")`, 2);
+  return id;
+}
 
 function isHolder(s) {
   const r = spawnSync("ps", ["-o", "command=", "-p", String(s.pid)], { encoding: "utf8" });
@@ -30,26 +40,44 @@ function isHolder(s) {
 }
 
 // The recorded holder if it is still running; a dead or foreign pid's record is dropped.
-function current() {
+function current(id) {
   let s;
-  try { s = JSON.parse(readFileSync(STATE, "utf8")); } catch { return null; }
+  try { s = JSON.parse(readFileSync(file(id), "utf8")); } catch { return null; }
   if (isHolder(s)) return s;
-  rmSync(STATE, { force: true });
+  rmSync(file(id), { force: true });
   return null;
 }
 
-function parseSize(arg = "1920x1200") {
+function ids() {
+  let names = [];
+  try { names = readdirSync(LOFTS).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).filter((n) => ID_RE.test(n) && n !== DEFAULT); } catch {}
+  return [DEFAULT, ...names.sort()];
+}
+const live = () => ids().map((id) => [id, current(id)]).filter(([, s]) => s);
+
+function parseSize(arg) {
   const m = /^(\d+)x(\d+)$/.exec(arg);
   const w = m && Number(m[1]), h = m && Number(m[2]);
   if (!m || w < 640 || h < 480 || w > 5120 || h > 2880) fail(`size must be WIDTHxHEIGHT, from 640x480 to 5120x2880 (got ${arg})`, 2);
   return [w, h];
 }
 
-async function up(sizeArg, asJson) {
-  const [w, h] = parseSize(sizeArg);
-  const s = current();
-  if (s) return console.log(asJson ? json(s) : `${line(s)}, already up`);
-  const child = spawn(HOLDER[0], [...HOLDER.slice(1), String(w), String(h)], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
+async function up(id, sizeArg, asJson) {
+  const [w, h] = parseSize(sizeArg ?? "1920x1200");
+  const s = current(id);
+  if (s) {
+    if (sizeArg != null && (s.w !== w || s.h !== h)) {
+      fail(id === DEFAULT
+        ? `the loft is up at ${s.w}x${s.h}, not ${w}x${h}; use --id <name> for a loft of another size, or loft down first`
+        : `loft ${id} is up at ${s.w}x${s.h}, not ${w}x${h}; use another --id, or loft down ${id} first`, 4);
+    }
+    return console.log(asJson ? JSON.stringify(json(id, s)) : `${line(id, s)}, already up`);
+  }
+  // The default loft keeps serial 1; a named one takes the lowest serial no live loft has.
+  const taken = new Set(live().map(([, l]) => l.serial ?? 1));
+  let serial = 1;
+  if (id !== DEFAULT) { serial = 2; while (taken.has(serial)) serial++; }
+  const child = spawn(HOLDER[0], [...HOLDER.slice(1), String(w), String(h), String(serial)], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
   const answer = await new Promise((resolve) => {
     let buf = "";
     const t = setTimeout(() => resolve(null), WAIT_MS);
@@ -66,28 +94,51 @@ async function up(sizeArg, asJson) {
   }
   child.stdout.destroy();
   child.unref();
-  const state = { pid: child.pid, cmd: HOLDER[HOLDER.length - 1], displayId: answer.displayId, x: answer.x, y: answer.y, w: answer.w, h: answer.h, started: new Date().toISOString() };
-  mkdirSync(HOME, { recursive: true });
-  writeFileSync(STATE, JSON.stringify(state));
-  console.log(asJson ? json(state) : line(state));
+  const state = { pid: child.pid, cmd: HOLDER[HOLDER.length - 1], displayId: answer.displayId, x: answer.x, y: answer.y, w: answer.w, h: answer.h, serial, started: new Date().toISOString() };
+  mkdirSync(dirname(file(id)), { recursive: true });
+  writeFileSync(file(id), JSON.stringify(state));
+  console.log(asJson ? JSON.stringify(json(id, state)) : line(id, state));
 }
 
-async function down() {
-  const s = current();
+async function down(id) {
+  const s = current(id);
   if (s) {
     try { process.kill(s.pid, "SIGTERM"); } catch {}
     for (let i = 0; i < 60 && isHolder(s); i++) await new Promise((r) => setTimeout(r, 50));
     if (isHolder(s)) try { process.kill(s.pid, "SIGKILL"); } catch {}
-    rmSync(STATE, { force: true });
+    rmSync(file(id), { force: true });
   }
-  console.log("loft is down");
+  console.log(`${id === DEFAULT ? "loft" : `loft ${id}`} is down`);
 }
 
 const args = process.argv.slice(2);
 const asJson = args.includes("--json");
-const [cmd, arg] = args.filter((a) => a !== "--json");
-if (cmd === "up") await up(arg, asJson);
-else if (cmd === "down") await down();
-else if (cmd === "status" && asJson) { const s = current(); console.log(json(s)); if (!s) process.exitCode = 3; }
-else if (cmd === "status") { const s = current(); console.log(s ? line(s) : "loft is down"); }
-else fail(USAGE, 2);
+const all = args.includes("--all");
+const fresh = args.includes("--new");
+let named = null;
+const rest = [];
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === "--id") { named = args[++i] ?? ""; continue; }
+  if (["--json", "--all", "--new"].includes(args[i])) continue;
+  rest.push(args[i]);
+}
+const [cmd, arg] = rest;
+
+if (cmd === "up") {
+  let id = DEFAULT;
+  if (named != null) id = checkId(named);
+  else if (fresh) { const have = new Set(ids()); let n = 1; while (have.has(`loft-${n}`)) n++; id = `loft-${n}`; }
+  await up(id, arg, asJson);
+} else if (cmd === "down") {
+  if (all) for (const id of ids()) await down(id);
+  else await down(arg == null ? DEFAULT : arg === DEFAULT ? DEFAULT : checkId(arg));
+} else if (cmd === "status") {
+  const id = arg == null || arg === DEFAULT ? DEFAULT : checkId(arg);
+  const s = current(id);
+  if (asJson) { console.log(JSON.stringify(json(id, s))); if (!s) process.exitCode = 3; }
+  else console.log(s ? line(id, s) : `${id === DEFAULT ? "loft" : `loft ${id}`} is down`);
+} else if (cmd === "list") {
+  const l = live();
+  if (asJson) console.log(JSON.stringify(l.map(([id, s]) => json(id, s))));
+  else console.log(l.length ? l.map(([id, s]) => `${id.padEnd(12)} ${s.w}x${s.h} at ${s.x},${s.y} (display ${s.displayId})`).join("\n") : "no loft is up");
+} else fail(USAGE, 2);

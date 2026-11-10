@@ -16,7 +16,16 @@ loft status    # whether it's up, its size and where it sits (--json for scripts
 loft down      # remove it
 ```
 
-For scripts and agents, `loft status --json` prints `{up, displayId, vendor, product, name, bounds}` and exits 3 when the loft is down (`loft up --json` prints the same). You can count on the loft's identity staying the same: vendor `0x6c66`, product `0x7466`, and the `displayId` it reports while up. Its name is `"loft"`, though what macOS shows for it is unverified. The record in `~/Library/Application Support/loft/holder.json` is stable too. Its bounds are the ones from `up` and don't follow you rearranging displays.
+An agent that needs a screen of a given size makes its own loft and removes it when done, leaving yours and other agents' alone:
+```bash
+loft up 1280x800 --new --json   # a new loft that size; prints its id
+loft status <id>                # that loft (--json for scripts)
+loft list                       # every loft that's up
+loft down <id>                  # remove only that one (loft down --all: every one)
+```
+A loft already up at another size is refused (exit 4) rather than reused at the wrong size.
+
+For scripts and agents, `loft status --json` prints `{up, id, displayId, vendor, product, name, bounds}` and exits 3 when the loft is down (`loft up --json` prints the same). You can count on the loft's identity staying the same: vendor `0x6c66`, product `0x7466`, and the `displayId` it reports while up. Its name is `"loft"`, though what macOS shows for it is unverified. The records in `~/Library/Application Support/loft` are stable too: `holder.json` for the default loft, `lofts/<id>.json` for each named one. Its bounds are the ones from `up` and don't follow you rearranging displays.
 
 loft never moves your windows. An agent puts its own windows on the loft and takes them back.
 
