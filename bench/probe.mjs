@@ -99,6 +99,9 @@ try {
   await sleep(2500);
   console.error(`probe: ${TIMERS} window ${sid} at ${JSON.stringify(safari(`JSON.stringify(s.windows.byId(${sid}).bounds())`))}`);
   const visible = await sTicks(sid);
+  // A hidden app's windows are hidden on every display, the loft too: say so rather than blame the loft.
+  const sHidden = jxa(`ObjC.import("AppKit"); const l = $.NSRunningApplication.runningApplicationsWithBundleIdentifier("com.apple.Safari"); JSON.stringify(l.count > 0 && l.objectAtIndex(0).hidden)`);
+  if (sHidden) console.error(`probe: ${TIMERS} is hidden (Cmd-H), so its page reads hidden on the loft too; unhide it and run again`);
   safari(`s.windows.byId(${sid}).miniaturized = true; "1"`);
   await sleep(1500);
   const hidden = await sTicks(sid);
