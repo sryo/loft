@@ -113,7 +113,7 @@ test("an unknown command lists the commands", (t) => {
   const { run } = setup(t);
   const r = run("sideways");
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /usage: loft up \[WIDTHxHEIGHT\] \[--id <name> \| --new\] \| status \[<name>\] \| list \| down/);
+  assert.match(r.stderr, /usage: loft up \[WIDTHxHEIGHT\] \[--id <name> \| --new\] \[--owner <pid>\] \| status \[<name>\] \| list \| down/);
 });
 
 const ID = { vendor: 0x6c66, product: 0x7466, name: "loft" };

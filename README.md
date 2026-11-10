@@ -25,6 +25,10 @@ loft down <id>                  # remove only that one (loft down --all: every o
 ```
 A loft already up at another size is refused (exit 4) rather than reused at the wrong size.
 
+`--owner <pid>` ties a loft to a process: when that process ends, however it ends, the loft goes too. perch uses it for the lofts it makes itself (`new_tab {url, loft:"1280x800"}`), so an agent never has to clean up.
+
+loft and [rooms](https://github.com/sryo/rooms) speak the same dialect: names are a letter then up to 30 of a-z, 0-9 and -; sizes are `WIDTHxHEIGHT`; `status <name>` exits 3 when it isn't up; with `--json`, an error is `{ok:false, code, error}` on stdout.
+
 For scripts and agents, `loft status --json` prints `{up, id, displayId, vendor, product, name, bounds}` and exits 3 when the loft is down (`loft up --json` prints the same). You can count on the loft's identity staying the same: vendor `0x6c66`, product `0x7466`, and the `displayId` it reports while up. Its name is `"loft"`, though what macOS shows for it is unverified. The records in `~/Library/Application Support/loft` are stable too: `holder.json` for the default loft, `lofts/<id>.json` for each named one. Its bounds are the ones from `up` and don't follow you rearranging displays.
 
 loft never moves your windows. An agent puts its own windows on the loft and takes them back.

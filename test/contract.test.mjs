@@ -23,6 +23,6 @@ test("L1: AGENTS.md and README document the identity and holder.json as stable",
     assert.match(d, /"loft"[^\n]*unverified/i, `${f} marks the name unverified`);
     assert.match(d, /stable/i, `${f} declares it stable`);
   }
-  assert.match(read("AGENTS.md"), /\{pid, cmd, displayId, x, y, w, h, serial, started\}/);
+  assert.match(read("AGENTS.md"), /\{pid, cmd, displayId, x, y, w, h, serial, owner\?, started\}/);
   assert.match(read("AGENTS.md"), /frozen at `up`/);
 });

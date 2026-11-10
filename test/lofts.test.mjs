@@ -4,7 +4,7 @@
 // (holder.json) is unchanged.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -119,9 +119,57 @@ test("M5: a dead named loft's record is dropped", (t) => {
 
 test("M6: a bad id starts nothing", (t) => {
   const { run } = setup(t);
-  for (const id of ["default", "../x", "A B", ""]) {
+  for (const id of ["default", "../x", "A B", "", "9a"]) {
     const r = run("up", "1280x800", "--id", id);
     assert.equal(r.status, 2, id);
     assert.match(r.stderr, /id must be/);
   }
+});
+
+// One dialect with rooms: the same id pattern (a letter first, so "1280x800" is
+// never an id), exit 3 when not up, and --json errors as JSON on stdout.
+test("A1: ids follow rooms' pattern", (t) => {
+  const { run } = setup(t);
+  for (const id of ["1280x800", "9a", "a".repeat(32)]) assert.equal(run("up", "1280x800", "--id", id).status, 2, id);
+  assert.equal(run("up", "1280x800", "--id", "a".repeat(31)).status, 0);
+});
+
+test("A2: with --json an error is {ok:false, code, error} on stdout", (t) => {
+  const { run } = setup(t);
+  let r = run("up", "big", "--json");
+  assert.equal(r.status, 2);
+  assert.deepEqual(JSON.parse(r.stdout), { ok: false, code: "bad_size", error: "size must be WIDTHxHEIGHT, from 640x480 to 5120x2880 (got big)" });
+  run("up", "1280x800", "--id", "a");
+  r = run("up", "1024x768", "--id", "a", "--json");
+  assert.equal(r.status, 4);
+  assert.equal(JSON.parse(r.stdout).code, "size_mismatch");
+  assert.equal(JSON.parse(run("up", "1280x800", "--id", "Bad", "--json").stdout).code, "bad_id");
+  assert.match(run("up", "big").stderr, /^loft: size must be/, "without --json, plain text on stderr as before");
+});
+
+// --owner <pid>: the loft lasts only while that process does, so a loft an agent's
+// tool made (perch) goes with it however it ends.
+test("O1: a loft with an owner goes when the owner does", async (t) => {
+  const { run, rec } = setup(t);
+  const owner = spawn("sleep", ["30"]);
+  t.after(() => owner.kill());
+  const r = run("up", "1280x800", "--new", "--owner", String(owner.pid), "--json");
+  assert.equal(r.status, 0, r.stderr);
+  const id = JSON.parse(r.stdout).id;
+  assert.equal(rec(id).owner, owner.pid);
+  const pid = rec(id).pid;
+  owner.kill("SIGKILL");
+  for (let i = 0; i < 40 && alive(pid); i++) await new Promise((res) => setTimeout(res, 100));
+  assert.equal(alive(pid), false, "the holder exited with its owner");
+  assert.equal(run("status", id, "--json").status, 3);
+});
+
+test("O1: an owner that isn't running starts nothing", (t) => {
+  const { run } = setup(t);
+  for (const o of ["99999999", "x", "0"]) {
+    const r = run("up", "1280x800", "--new", "--owner", o, "--json");
+    assert.equal(r.status, 2, o);
+    assert.equal(JSON.parse(r.stdout).code, "bad_owner");
+  }
+  assert.equal(run("list", "--json").stdout.trim(), "[]");
 });

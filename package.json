@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Gives your agents a screen of their own on your Mac, out of your sight.",
   "bin": { "loft": "loft.mjs" },
-  "scripts": { "test": "node --test test/" },
+  "scripts": { "test": "node --test --test-concurrency=1 test/" },
   "engines": { "node": ">=22.16" }
 }

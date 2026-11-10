@@ -1,7 +1,8 @@
 // The loft holder: adds a virtual display and keeps it while this osascript
-// lives. Run as `osascript -l JavaScript holder.js WIDTH HEIGHT [SERIAL]`. It answers
+// lives. Run as `osascript -l JavaScript holder.js WIDTH HEIGHT [SERIAL [OWNER]]`. It answers
 // one JSON line on stdout, then serves the main run loop until killed; the
-// display goes when the process does, however it ends.
+// display goes when the process does, however it ends. Given an OWNER pid, it
+// exits once that process is gone, taking the display with it.
 ObjC.import("AppKit");
 ObjC.import("CoreGraphics");
 
@@ -50,5 +51,8 @@ function run(argv) {
   say({ ok: true, displayId: id, x: b.origin.x, y: b.origin.y, w: b.size.width, h: b.size.height });
 
   globalThis.__loft = display;
-  for (;;) spin(60);
+  const owner = Number(argv[3]) || 0;
+  if (!owner) for (;;) spin(60);
+  ObjC.bindFunction("kill", ["int", ["int", "int"]]);
+  while ($.kill(owner, 0) === 0) spin(1);
 }
