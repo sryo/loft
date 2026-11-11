@@ -1,8 +1,9 @@
 // The loft holder: adds a virtual display and keeps it while this osascript
-// lives. Run as `osascript -l JavaScript holder.js WIDTH HEIGHT [SERIAL [OWNER]]`. It answers
+// lives, at the main display's bottom-left corner. Run as `osascript -l JavaScript holder.js WIDTH HEIGHT [SERIAL [OWNER]]`. It answers
 // one JSON line on stdout, then serves the main run loop until killed; the
 // display goes when the process does, however it ends. Given an OWNER pid, it
-// exits once that process is gone, taking the display with it.
+// exits once that process is gone, taking the display with it. While it lives it
+// puts a cursor that strays onto the display back on the main one.
 ObjC.import("AppKit");
 ObjC.import("CoreGraphics");
 
@@ -13,6 +14,29 @@ function say(obj) {
 
 function spin(seconds) {
   $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(seconds));
+}
+
+// The cursor can still reach the loft through the corner the displays share.
+// One found there is put back on the nearest point of the main display, so it
+// is never lost on a screen nobody sees.
+function fence(id) {
+  // The displays' bounds are read once a second; the cursor on every check.
+  const now = Date.now();
+  if (!fence.at || now - fence.at >= 1000) { fence.at = now; fence.main = $.CGDisplayBounds($.CGMainDisplayID()); fence.b = $.CGDisplayBounds(id); }
+  const main = fence.main, b = fence.b, p = $.NSEvent.mouseLocation;
+  // AppKit counts y up from the main display's bottom edge; CoreGraphics down from its top.
+  const x = p.x, y = main.size.height - p.y;
+  const dx = Math.max(b.origin.x - x, 0, x - (b.origin.x + b.size.width - 1));
+  const dy = Math.max(b.origin.y - y, 0, y - (b.origin.y + b.size.height - 1));
+  // Far from the loft the next check can wait; near it, it can't.
+  if (dx || dy) return Math.max(dx, dy) > 300 ? 0.25 : 0.03;
+  $.CGWarpMouseCursorPosition({
+    x: Math.min(Math.max(x, main.origin.x), main.origin.x + main.size.width - 1),
+    y: Math.min(Math.max(y, main.origin.y), main.origin.y + main.size.height - 1),
+  });
+  // A warp holds mouse movement back for a quarter second unless told not to.
+  $.CGAssociateMouseAndMouseCursorPosition(1);
+  return 0.03;
 }
 
 function run(argv) {
@@ -48,11 +72,34 @@ function run(argv) {
     spin(0.05);
   }
   if (!b) { say({ ok: false, error: "the display never came online" }); return; }
+  // macOS puts a new display beside the main one, sharing a long edge the cursor
+  // crosses. Displays must touch, so the loft goes where they touch least: the
+  // main display's bottom-left corner, below and to its left, away from the menu
+  // bar's corners and the Dock's edge. If macOS refuses, it stays where it came up.
+  try {
+    const main = $.CGDisplayBounds($.CGMainDisplayID());
+    const x = main.origin.x - b.size.width, y = main.origin.y + main.size.height;
+    const config = Ref();
+    if ($.CGBeginDisplayConfiguration(config) === 0) {
+      $.CGConfigureDisplayOrigin(config[0], id, x, y);
+      // 0: kCGConfigureForAppOnly, undone when this process ends.
+      $.CGCompleteDisplayConfiguration(config[0], 0);
+      for (let i = 0; i < 20; i++) {
+        b = $.CGDisplayBounds(id);
+        if (b.origin.x === x && b.origin.y === y) break;
+        spin(0.05);
+      }
+    }
+  } catch (e) {}
   say({ ok: true, displayId: id, x: b.origin.x, y: b.origin.y, w: b.size.width, h: b.size.height });
 
   globalThis.__loft = display;
   const owner = Number(argv[3]) || 0;
-  if (!owner) for (;;) spin(60);
-  ObjC.bindFunction("kill", ["int", ["int", "int"]]);
-  while ($.kill(owner, 0) === 0) spin(1);
+  if (owner) ObjC.bindFunction("kill", ["int", ["int", "int"]]);
+  let wait = 0.03, checked = Date.now();
+  for (;;) {
+    spin(wait);
+    try { wait = fence(id); } catch (e) { wait = 0.25; }
+    if (owner && Date.now() - checked >= 1000) { checked = Date.now(); if ($.kill(owner, 0) !== 0) return; }
+  }
 }

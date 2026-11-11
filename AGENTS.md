@@ -22,11 +22,13 @@ bench/fixture.html# the page the probe drives
   - `loft status --json` and `loft up --json` print `{up, id, displayId, vendor, product, name, bounds: {x, y, w, h}}` from that record (`id` is `"default"` for holder.json); with a name, `status <id>` reports that loft, and `list --json` prints an array of every live one. `status --json` exits 3 when down (`displayId` and `bounds` null); plain `status` always exits 0.
 - The holder sets the prohibited activation policy, so it has no Dock icon and never activates.
 - `sizeInMillimeters` is set for about 96 dpi so macOS treats the display as 1x.
+- The holder moves the display to the main display's bottom-left corner (`CGConfigureDisplayOrigin`, for the holder's life), where the two share no edge; left where macOS put it, the loft shares most of an edge and the cursor wanders onto it. If macOS refuses the origin, the display stays where it came up.
+- The corner still lets a diagonal fling through, so the holder checks the cursor (`fence`: every 30ms within 300 points of the loft, every 250ms farther away) and warps one found inside the loft's live bounds to the nearest point of the main display. A driver that moves the real cursor onto a loft window loses it the same way; drivers post to the window instead (perch's background trusted input).
 - loft never moves windows. Callers park their own windows by setting their bounds inside the display's rect.
 
 ## Rules
 - Single file CLI plus the JXA holder, Node built-ins only, no build step.
-- Never touch the user's windows, focus or cursor; the probe checks all three around up, down and each click.
+- Never touch the user's windows, focus or cursor; the probe checks all three around up, down and each click. The one exception is the fence: a cursor on the loft is put back on the main display.
 
 ## Test
 ```bash

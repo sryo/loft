@@ -86,6 +86,13 @@ try {
   console.error(`probe: ${u.stdout.trim()} in ${u.ms}ms`);
   await sleep(1000);
   const s1 = scene();
+  // How much of the main display's border the loft touches, in points: the
+  // cursor crosses onto the loft only along it. A corner alone is 0.
+  const mainB = jxa(`ObjC.import("CoreGraphics"); const b = $.CGDisplayBounds($.CGMainDisplayID()); JSON.stringify({ x: b.origin.x, y: b.origin.y, w: b.size.width, h: b.size.height })`);
+  const span = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+  const sharedEdge = (st.x + st.w === mainB.x || st.x === mainB.x + mainB.w ? span(st.y, st.y + st.h, mainB.y, mainB.y + mainB.h) : 0)
+    + (st.y + st.h === mainB.y || st.y === mainB.y + mainB.h ? span(st.x, st.x + st.w, mainB.x, mainB.x + mainB.w) : 0);
+  console.error(`probe: the loft at ${st.x},${st.y} shares ${sharedEdge} points of the main display's border`);
   const rss = Number(execFileSync("ps", ["-o", "rss=", "-p", String(st.pid)], { encoding: "utf8" })) / 1024;
 
   // Goal 2: timers in a Safari window on the loft, then the same window minimized.
@@ -158,6 +165,7 @@ try {
   metrics["user windows moved"] = m("count", "lower", [winsMoved]);
   metrics["foreground or cursor changes"] = m("count", "lower", [focusMoved]);
   metrics["displays left after kill"] = m("count", "lower", [left]);
+  metrics["border shared with the main display"] = m("count", "lower", [sharedEdge]);
   metrics["loft over minimized ticks"] = m("quality", "higher", [visible.rate / Math.max(hidden.rate, 0.1)], { noisy: true });
   metrics["loft page visible"] = m("quality", "higher", [visible.vis === "visible" ? 1 : 0]);
   metrics["trusted click hits"] = m("quality", "higher", [hits]);

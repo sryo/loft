@@ -38,5 +38,5 @@ loft never moves your windows. An agent puts its own windows on the loft and tak
 - [rooms](https://github.com/sryo/rooms): when the agent needs its own signed-in browser rather than yours.
 
 ## Known gaps
-- The loft shows up in System Settings > Displays while it's up, and your mouse can wander onto it, since macOS treats it as a real monitor.
+- The loft shows up in System Settings > Displays while it's up, and macOS treats it as a real monitor. It sits below and to the left of your main display, touching only its bottom-left corner, and a mouse that slips through that corner is put straight back on your screen.
 - It relies on a part of macOS that Apple doesn't document, so a macOS update could break it.

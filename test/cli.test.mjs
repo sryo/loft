@@ -159,3 +159,16 @@ test("L2: loft.mjs reports the identity holder.js sets", () => {
   assert.equal(Number(/productID = (0x[0-9a-f]+)/.exec(h)[1]), ID.product);
   assert.equal(/desc\.name = \$\("([^"]+)"\)/.exec(h)[1], ID.name);
 });
+
+test("holder.js places the display at the main display's bottom-left corner, where they share no edge", () => {
+  const h = readFileSync(join(ROOT, "holder.js"), "utf8");
+  assert.match(h, /const x = main\.origin\.x - b\.size\.width, y = main\.origin\.y \+ main\.size\.height;/);
+  assert.match(h, /CGConfigureDisplayOrigin\(config\[0\], id, x, y\)/);
+});
+
+test("holder.js fences the cursor: one that strays onto the loft is put back on the main display", () => {
+  const h = readFileSync(join(ROOT, "holder.js"), "utf8");
+  assert.match(h, /function fence\(id\)/);
+  assert.match(h, /CGWarpMouseCursorPosition/);
+  assert.match(h, /wait = fence\(id\)/);
+});
