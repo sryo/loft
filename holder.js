@@ -44,6 +44,9 @@ function run(argv) {
   // No Dock icon, never activates.
   $.NSApplication.sharedApplication.setActivationPolicy($.NSApplicationActivationPolicyProhibited);
 
+  // Read before the display exists: while macOS takes a new display in, this read waits on it.
+  const main = $.CGDisplayBounds($.CGMainDisplayID());
+
   const desc = $.CGVirtualDisplayDescriptor.alloc.init;
   desc.setDispatchQueue($.NSOperationQueue.mainQueue.underlyingQueue);
   desc.name = $("loft");
@@ -77,17 +80,20 @@ function run(argv) {
   // main display's bottom-left corner, below and to its left, away from the menu
   // bar's corners and the Dock's edge. If macOS refuses, it stays where it came up.
   try {
-    const main = $.CGDisplayBounds($.CGMainDisplayID());
     const x = main.origin.x - b.size.width, y = main.origin.y + main.size.height;
-    const config = Ref();
-    if ($.CGBeginDisplayConfiguration(config) === 0) {
-      $.CGConfigureDisplayOrigin(config[0], id, x, y);
-      // 0: kCGConfigureForAppOnly, undone when this process ends.
-      $.CGCompleteDisplayConfiguration(config[0], 0);
-      for (let i = 0; i < 20; i++) {
-        b = $.CGDisplayBounds(id);
-        if (b.origin.x === x && b.origin.y === y) break;
-        spin(0.05);
+    // Moving a display takes macOS most of a second, so it is asked once: it
+    // remembers the place until logout, and the display comes up there after that.
+    if (b.origin.x !== x || b.origin.y !== y) {
+      const config = Ref();
+      if ($.CGBeginDisplayConfiguration(config) === 0) {
+        $.CGConfigureDisplayOrigin(config[0], id, x, y);
+        // 1: kCGConfigureForSession.
+        $.CGCompleteDisplayConfiguration(config[0], 1);
+        for (let i = 0; i < 20; i++) {
+          b = $.CGDisplayBounds(id);
+          if (b.origin.x === x && b.origin.y === y) break;
+          spin(0.05);
+        }
       }
     }
   } catch (e) {}

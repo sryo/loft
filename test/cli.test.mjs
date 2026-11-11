@@ -166,6 +166,12 @@ test("holder.js places the display at the main display's bottom-left corner, whe
   assert.match(h, /CGConfigureDisplayOrigin\(config\[0\], id, x, y\)/);
 });
 
+test("holder.js moves the display only when it came up elsewhere, and for the session", () => {
+  const h = readFileSync(join(ROOT, "holder.js"), "utf8");
+  assert.match(h, /if \(b\.origin\.x !== x \|\| b\.origin\.y !== y\) \{\s+const config = Ref\(\);/);
+  assert.match(h, /CGCompleteDisplayConfiguration\(config\[0\], 1\)/);
+});
+
 test("holder.js fences the cursor: one that strays onto the loft is put back on the main display", () => {
   const h = readFileSync(join(ROOT, "holder.js"), "utf8");
   assert.match(h, /function fence\(id\)/);
