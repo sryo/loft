@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/sryo/loft/main/install.sh | bash
 ## Use
 ```bash
 loft up        # add the hidden monitor (loft up 2560x1440 for another size)
-loft status    # whether it's up, its size and where it sits (--json for scripts)
+loft status    # whether it's up and where it sits, and any other loft that's up (--json for scripts)
 loft down      # remove it
 ```
 

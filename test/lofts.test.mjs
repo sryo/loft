@@ -184,3 +184,21 @@ test("Z1: a display that came up at another size is refused, with nothing left r
   assert.equal(spawnSync("pgrep", ["-f", FAKE], { encoding: "utf8" }).stdout.trim(), "");
   void home;
 });
+
+// A bare `loft status` answered "loft is down" while a named loft an agent made was
+// up for hours, so nobody saw it. It names every other loft up, with its owner, and
+// --json keeps reporting the default one alone.
+test("M7: plain status names the other lofts that are up and who owns them", (t) => {
+  const { run } = setup(t);
+  const owner = spawn("sleep", ["30"]);
+  t.after(() => owner.kill());
+  run("up", "1440x900", "--new", "--owner", String(owner.pid));
+  let r = run("status");
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, `loft is down; also up: loft-1 1440x900 (owner pid ${owner.pid}); loft down <id> ends one\n`);
+  run("up");
+  r = run("status");
+  assert.match(r.stdout, /^loft is up: 1920x1200 at 1512,0 \(display \d+\); also up: loft-1 1440x900 \(owner pid \d+\); loft down <id> ends one\n$/);
+  assert.equal(JSON.parse(run("status", "--json").stdout).others, undefined, "--json is unchanged");
+  assert.match(run("status", "loft-1").stdout, /^loft loft-1 is up: 1440x900 at 1512,0 \(display \d+\)\n$/, "a named status says only its own");
+});

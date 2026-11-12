@@ -158,7 +158,12 @@ if (cmd === "up") {
   const id = arg == null || arg === DEFAULT ? DEFAULT : checkId(arg);
   const s = current(id);
   if (asJson) { console.log(JSON.stringify(json(id, s))); if (!s) process.exitCode = 3; }
-  else console.log(s ? line(id, s) : `${id === DEFAULT ? "loft" : `loft ${id}`} is down`);
+  else {
+    // A bare status also names the other lofts up, so one an agent left isn't missed.
+    const others = arg == null ? live().filter(([o]) => o !== DEFAULT) : [];
+    const also = others.length ? `; also up: ${others.map(([o, x]) => `${o} ${x.w}x${x.h}${x.owner ? ` (owner pid ${x.owner})` : ""}`).join(", ")}; loft down <id> ends one` : "";
+    console.log((s ? line(id, s) : `${id === DEFAULT ? "loft" : `loft ${id}`} is down`) + also);
+  }
 } else if (cmd === "list") {
   const l = live();
   if (asJson) console.log(JSON.stringify(l.map(([id, s]) => json(id, s))));
