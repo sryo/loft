@@ -71,6 +71,14 @@ function parseSize(arg) {
   return [w, h];
 }
 
+// While the main display sleeps, macOS keeps a display whose holder has ended
+// until it wakes, and takes 12s to bring a new one up. Awake it does neither, a
+// locked screen included, so up and down wake it first.
+const WAKE = process.env.LOFT_WAKE ? JSON.parse(process.env.LOFT_WAKE) : ["caffeinate", "-u", "-t", "5"];
+function wake() {
+  try { spawn(WAKE[0], WAKE.slice(1), { detached: true, stdio: "ignore" }).on("error", () => {}).unref(); } catch {}
+}
+
 // One `up` at a time: two at once would pick the same loft-<n> and the same
 // display serial, so one's record would replace the other's and macOS would
 // refuse the second display. A lock left by an `up` that was killed is taken
@@ -100,6 +108,7 @@ async function up(id, sizeArg, asJson, owner, label) {
     }
     return console.log(asJson ? JSON.stringify(json(id, s)) : `${line(id, s)}, already up`);
   }
+  wake();
   // macOS remembers a mode per display serial and brings a new display up in it
   // whenever that mode fits (live: serial 2, once 1280x800, made 1440x900 and
   // 1920x1200 come up 1280x800). So the serial comes from the size, plus a step
@@ -138,6 +147,7 @@ async function up(id, sizeArg, asJson, owner, label) {
 async function down(id) {
   const s = current(id);
   if (s) {
+    wake();
     try { process.kill(s.pid, "SIGTERM"); } catch {}
     for (let i = 0; i < 60 && isHolder(s); i++) await new Promise((r) => setTimeout(r, 50));
     if (isHolder(s)) try { process.kill(s.pid, "SIGKILL"); } catch {}

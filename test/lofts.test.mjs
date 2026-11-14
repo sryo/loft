@@ -16,7 +16,7 @@ const ID = { vendor: 0x6c66, product: 0x7466, name: "loft" };
 
 function setup(t, extra = {}) {
   const home = mkdtempSync(join(tmpdir(), "loft-test-"));
-  const env = { ...process.env, LOFT_HOME: home, LOFT_HOLDER: JSON.stringify(["node", FAKE]), LOFT_WAIT_MS: "1500", ...extra };
+  const env = { ...process.env, LOFT_HOME: home, LOFT_HOLDER: JSON.stringify(["node", FAKE]), LOFT_WAIT_MS: "1500", LOFT_WAKE: JSON.stringify(["true"]), ...extra };
   const run = (...args) => spawnSync("node", [join(ROOT, "loft.mjs"), ...args], { env, encoding: "utf8" });
   t.after(() => { run("down", "--all"); rmSync(home, { recursive: true, force: true }); });
   const rec = (id) => JSON.parse(readFileSync(join(home, "lofts", `${id}.json`), "utf8"));
@@ -229,7 +229,7 @@ test("O3: a label that isn't plain text starts nothing", (t) => {
 // serial: two picking the same ones left a display no record named.
 test("O4: ups at once each get their own id, serial and record", async (t) => {
   const { run, rec, home } = setup(t);
-  const env = { ...process.env, LOFT_HOME: home, LOFT_HOLDER: JSON.stringify(["node", FAKE]), LOFT_WAIT_MS: "1500" };
+  const env = { ...process.env, LOFT_HOME: home, LOFT_HOLDER: JSON.stringify(["node", FAKE]), LOFT_WAIT_MS: "1500", LOFT_WAKE: JSON.stringify(["true"]) };
   const one = (size) => new Promise((resolve) => {
     const c = spawn("node", [join(ROOT, "loft.mjs"), "up", size, "--new", "--json"], { env });
     let out = "";

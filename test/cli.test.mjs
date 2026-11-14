@@ -14,7 +14,7 @@ const FAKE = join(ROOT, "test", "fakes", "fake-holder.mjs");
 
 function setup(t, extra = {}) {
   const home = mkdtempSync(join(tmpdir(), "loft-test-"));
-  const env = { ...process.env, LOFT_HOME: home, LOFT_HOLDER: JSON.stringify(["node", FAKE]), LOFT_WAIT_MS: "1500", ...extra };
+  const env = { ...process.env, LOFT_HOME: home, LOFT_HOLDER: JSON.stringify(["node", FAKE]), LOFT_WAIT_MS: "1500", LOFT_WAKE: JSON.stringify(["true"]), ...extra };
   const run = (...args) => spawnSync("node", [join(ROOT, "loft.mjs"), ...args], { env, encoding: "utf8" });
   t.after(() => { run("down"); rmSync(home, { recursive: true, force: true }); });
   return { home, env, run, state: () => JSON.parse(readFileSync(join(home, "holder.json"), "utf8")) };
@@ -177,4 +177,39 @@ test("holder.js fences the cursor: one that strays onto the loft is put back on 
   assert.match(h, /function fence\(id\)/);
   assert.match(h, /CGWarpMouseCursorPosition/);
   assert.match(h, /wait = fence\(id\)/);
+});
+
+// A sleeping display keeps a loft's display after its holder ends and brings a new
+// one up in 12s; awake, neither happens. So up and down wake it.
+const wakes = (home) => { try { return readFileSync(join(home, "wakes"), "utf8").trim().split("\n").length; } catch { return 0; } };
+const waker = (home) => ({ LOFT_WAKE: JSON.stringify(["sh", "-c", `echo w >> "${join(home, "wakes")}"`]) });
+const settle = () => new Promise((r) => setTimeout(r, 300));
+
+test("K1: up wakes the display before it starts the holder", async (t) => {
+  const s = setup(t);
+  Object.assign(s.env, waker(s.home));
+  assert.equal(s.run("up").status, 0);
+  await settle();
+  assert.equal(wakes(s.home), 1);
+});
+
+test("K1: an up that finds the loft already up wakes nothing", async (t) => {
+  const s = setup(t);
+  s.run("up");
+  Object.assign(s.env, waker(s.home));
+  s.run("up");
+  await settle();
+  assert.equal(wakes(s.home), 0);
+});
+
+test("K1: down wakes the display so the loft's display goes, and only when a loft was up", async (t) => {
+  const s = setup(t);
+  s.run("up");
+  Object.assign(s.env, waker(s.home));
+  s.run("down");
+  await settle();
+  assert.equal(wakes(s.home), 1);
+  s.run("down");
+  await settle();
+  assert.equal(wakes(s.home), 1);
 });

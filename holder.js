@@ -3,7 +3,9 @@
 // one JSON line on stdout, then serves the main run loop until killed; the
 // display goes when the process does, however it ends. Given an OWNER pid, it
 // exits once that process is gone, taking the display with it. While it lives it
-// puts a cursor that strays onto the display back on the main one.
+// puts a cursor that strays onto the display back on the main one. It waits for
+// a sleeping main display to wake before adding its own, and wakes it when it
+// ends by itself.
 ObjC.import("AppKit");
 ObjC.import("CoreGraphics");
 
@@ -52,6 +54,10 @@ function run(argv) {
   const w = Number(argv[0]), h = Number(argv[1]);
   // No Dock icon, never activates.
   $.NSApplication.sharedApplication.setActivationPolicy($.NSApplicationActivationPolicyProhibited);
+
+  // loft.mjs wakes a sleeping display before it starts this; a display made while
+  // it still sleeps takes macOS 12s, so wait for the wake, 4s at most.
+  for (let i = 0; i < 80 && $.CGDisplayIsAsleep($.CGMainDisplayID()); i++) spin(0.05);
 
   // Read before the display exists: while macOS takes a new display in, this read waits on it.
   const main = $.CGDisplayBounds($.CGMainDisplayID());
@@ -121,16 +127,24 @@ function run(argv) {
     try { wait = fence(id); } catch (e) { wait = 0.25; }
     if (!owner) continue;
     const now = Date.now();
-    if (now - checked >= 1000) { checked = now; if ($.kill(owner, 0) !== 0) return; }
+    if (now - checked >= 1000) { checked = now; if ($.kill(owner, 0) !== 0) return leave(); }
     if (now - looked >= 2000) {
       looked = now;
       let n = 1;
       try { n = windowsOn(id); } catch (e) {}
       if (n > 0) { seen = true; emptySince = 0; }
       else if (!emptySince) emptySince = now;
-      else if (now - emptySince >= (seen ? EMPTY_MS : FIRST_MS)) return;
+      else if (now - emptySince >= (seen ? EMPTY_MS : FIRST_MS)) return leave();
     }
   }
+}
+
+// macOS keeps the display of a holder that ended while the main display slept
+// until it wakes, so a holder ending by itself then wakes it on the way out.
+function leave() {
+  try {
+    if ($.CGDisplayIsAsleep($.CGMainDisplayID())) $.NSTask.launchedTaskWithLaunchPathArguments("/usr/bin/caffeinate", ["-u", "-t", "5"]);
+  } catch (e) {}
 }
 
 // How many ordinary windows (layer 0, any app's, hidden and minimized ones too)
