@@ -5,8 +5,9 @@
 // user's windows, frontmost app and cursor never moved and that a killed
 // holder leaves no display. Run once locked and once unlocked: the lock row
 // names its metrics by the session's state.
-//   node bench/probe.mjs [--yes] [out.json]   default: ~/.fium/runs/loft/<commit>[-dirty].json
-// Creates a display and a browser window: run it while the user is away.
+//   node bench/probe.mjs --yes [--now] [out.json]   default: ~/.fium/runs/loft/<commit>[-dirty].json
+// Creates a display and a browser window, so it stops unless the user is away
+// (`fium away`); --now runs it with them there.
 import { spawnSync, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -20,7 +21,13 @@ const BROWSER = process.env.LOFT_PROBE_BROWSER || "Google Chrome Canary";
 const TIMERS = "Safari";
 const args = process.argv.slice(2);
 if (!args.includes("--yes")) { console.error("probe: adds a display and a browser window; pass --yes"); process.exit(2); }
-const outArg = args.find((a) => a !== "--yes");
+// It can raise Canary and shows windows before they reach the loft, so it runs
+// only while the user is away (fium L3); --now is the user saying go.
+if (!args.includes("--now")) {
+  const r = spawnSync("fium", ["away"], { encoding: "utf8", timeout: 30000 });
+  if (r.status !== 0) { console.error(`probe: runs only while you're away (${(r.stdout || "").trim() || "fium away did not answer"}); --now runs it anyway`); process.exit(2); }
+}
+const outArg = args.find((a) => a !== "--yes" && a !== "--now");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jxa = (src) => JSON.parse(execFileSync("osascript", ["-l", "JavaScript", "-e", src], { encoding: "utf8" }));
