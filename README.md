@@ -25,7 +25,7 @@ loft down <id>                  # remove only that one (loft down --all: every o
 ```
 A loft already up at another size is refused (exit 4) rather than reused at the wrong size.
 
-`--owner <pid>` ties a loft to a process: when that process ends, however it ends, the loft goes too. perch uses it for the lofts it makes itself (`new_tab {url, loft:"1280x800"}`), so an agent never has to clean up.
+`--owner <pid>` ties a loft to a process: when that process ends, however it ends, the loft goes too. perch uses it for the lofts it makes itself (`new_tab {url, loft:"1280x800"}`), so an agent never has to clean up. An owned loft also goes by itself 30 seconds after its last window closes. `--label <text>` notes who made it, and `loft list` shows it.
 
 loft and [rooms](https://github.com/sryo/rooms) speak the same dialect: names are a letter then up to 30 of a-z, 0-9 and -; sizes are `WIDTHxHEIGHT`; `status <name>` exits 3 when it isn't up; with `--json`, an error is `{ok:false, code, error}` on stdout.
 

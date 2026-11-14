@@ -6,7 +6,7 @@
 // macOS keeps them apart. A recorded pid is signalled only while its command
 // line still names the holder.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, rmSync, rmdirSync, statSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,12 +16,15 @@ const HOME = process.env.LOFT_HOME || join(homedir(), "Library", "Application Su
 const LOFTS = join(HOME, "lofts");
 const HOLDER = process.env.LOFT_HOLDER ? JSON.parse(process.env.LOFT_HOLDER) : ["osascript", "-l", "JavaScript", join(ROOT, "holder.js")];
 const WAIT_MS = Number(process.env.LOFT_WAIT_MS || 5000);
-const USAGE = "usage: loft up [WIDTHxHEIGHT] [--id <name> | --new] [--owner <pid>] | status [<name>] | list | down [<name> | --all] (--json on up, status and list)";
+const USAGE = "usage: loft up [WIDTHxHEIGHT] [--id <name> | --new] [--owner <pid>] [--label <text>] | status [<name>] | list | down [<name> | --all] (--json on up, status and list)";
 // What holder.js sets on the display; AGENTS.md documents it as stable.
 const IDENTITY = { vendor: 0x6c66, product: 0x7466, name: "loft" };
 const DEFAULT = "default";
 // The same names rooms takes; a letter first, so a size like 1280x800 is never an id.
 const ID_RE = /^[a-z][a-z0-9-]{0,30}$/;
+// Who made the loft, in its maker's words (perch: its project folder); shown by list and status.
+const LABEL_RE = /^[A-Za-z0-9._-]{1,40}$/;
+const by = (s) => [s.label, s.owner ? `owner pid ${s.owner}` : null].filter(Boolean).join(", ");
 
 // With --json an error is {ok:false, code, error} on stdout, as rooms prints it.
 const fail = (code, msg, exit = 1) => {
@@ -32,7 +35,7 @@ const fail = (code, msg, exit = 1) => {
 const file = (id) => (id === DEFAULT ? join(HOME, "holder.json") : join(LOFTS, `${id}.json`));
 const line = (id, s) => `${id === DEFAULT ? "loft" : `loft ${id}`} is up: ${s.w}x${s.h} at ${s.x},${s.y} (display ${s.displayId})`;
 const json = (id, s) => (s
-  ? { up: true, id, displayId: s.displayId, ...IDENTITY, bounds: { x: s.x, y: s.y, w: s.w, h: s.h } }
+  ? { up: true, id, displayId: s.displayId, ...IDENTITY, bounds: { x: s.x, y: s.y, w: s.w, h: s.h }, ...(s.label ? { label: s.label } : {}) }
   : { up: false, id, displayId: null, ...IDENTITY, bounds: null });
 
 function checkId(id) {
@@ -68,7 +71,25 @@ function parseSize(arg) {
   return [w, h];
 }
 
-async function up(id, sizeArg, asJson, owner) {
+// One `up` at a time: two at once would pick the same loft-<n> and the same
+// display serial, so one's record would replace the other's and macOS would
+// refuse the second display. A lock left by an `up` that was killed is taken
+// over once it is older than any `up` can run.
+const LOCK = join(HOME, "up.lock"), LOCK_STALE_MS = WAIT_MS + 5000, LOCK_WAIT_MS = 12000;
+async function lock() {
+  mkdirSync(HOME, { recursive: true });
+  for (const began = Date.now(); ;) {
+    try { mkdirSync(LOCK); break; } catch (e) { if (e.code !== "EEXIST") throw e; }
+    let age = 0;
+    try { age = Date.now() - statSync(LOCK).mtimeMs; } catch { continue; }
+    if (age > LOCK_STALE_MS) { try { rmdirSync(LOCK); } catch {} continue; }
+    if (Date.now() - began > LOCK_WAIT_MS) fail("busy", "another loft up is still running; retry");
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  process.on("exit", () => { try { rmdirSync(LOCK); } catch {} });
+}
+
+async function up(id, sizeArg, asJson, owner, label) {
   const [w, h] = parseSize(sizeArg ?? "1920x1200");
   const s = current(id);
   if (s) {
@@ -108,7 +129,7 @@ async function up(id, sizeArg, asJson, owner) {
   }
   child.stdout.destroy();
   child.unref();
-  const state = { pid: child.pid, cmd: HOLDER[HOLDER.length - 1], displayId: answer.displayId, x: answer.x, y: answer.y, w: answer.w, h: answer.h, serial, ...(owner ? { owner } : {}), started: new Date().toISOString() };
+  const state = { pid: child.pid, cmd: HOLDER[HOLDER.length - 1], displayId: answer.displayId, x: answer.x, y: answer.y, w: answer.w, h: answer.h, serial, ...(owner ? { owner } : {}), ...(label ? { label } : {}), started: new Date().toISOString() };
   mkdirSync(dirname(file(id)), { recursive: true });
   writeFileSync(file(id), JSON.stringify(state));
   console.log(asJson ? JSON.stringify(json(id, state)) : line(id, state));
@@ -129,11 +150,12 @@ const args = process.argv.slice(2);
 const asJson = args.includes("--json");
 const all = args.includes("--all");
 const fresh = args.includes("--new");
-let named = null, owner = null;
+let named = null, owner = null, label = null;
 const rest = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--id") { named = args[++i] ?? ""; continue; }
   if (args[i] === "--owner") { owner = args[++i] ?? ""; continue; }
+  if (args[i] === "--label") { label = args[++i] ?? ""; continue; }
   if (["--json", "--all", "--new"].includes(args[i])) continue;
   rest.push(args[i]);
 }
@@ -142,7 +164,6 @@ const [cmd, arg] = rest;
 if (cmd === "up") {
   let id = DEFAULT;
   if (named != null) id = checkId(named);
-  else if (fresh) { const have = new Set(ids()); let n = 1; while (have.has(`loft-${n}`)) n++; id = `loft-${n}`; }
   if (owner != null) {
     const pid = /^[1-9]\d*$/.test(owner) ? Number(owner) : 0;
     let ok = pid > 0;
@@ -150,7 +171,10 @@ if (cmd === "up") {
     if (!ok) fail("bad_owner", `--owner takes the pid of a running process (got ${owner})`, 2);
     owner = pid;
   }
-  await up(id, arg, asJson, owner);
+  if (label != null && !LABEL_RE.test(label)) fail("bad_label", `--label takes 1 to 40 of A-Z, a-z, 0-9, ".", "_" and "-" (got "${label}")`, 2);
+  await lock();
+  if (named == null && fresh) { const have = new Set(ids()); let n = 1; while (have.has(`loft-${n}`)) n++; id = `loft-${n}`; }
+  await up(id, arg, asJson, owner, label);
 } else if (cmd === "down") {
   if (all) for (const id of ids()) await down(id);
   else await down(arg == null ? DEFAULT : arg === DEFAULT ? DEFAULT : checkId(arg));
@@ -161,11 +185,11 @@ if (cmd === "up") {
   else {
     // A bare status also names the other lofts up, so one an agent left isn't missed.
     const others = arg == null ? live().filter(([o]) => o !== DEFAULT) : [];
-    const also = others.length ? `; also up: ${others.map(([o, x]) => `${o} ${x.w}x${x.h}${x.owner ? ` (owner pid ${x.owner})` : ""}`).join(", ")}; loft down <id> ends one` : "";
+    const also = others.length ? `; also up: ${others.map(([o, x]) => `${o} ${x.w}x${x.h}${by(x) ? ` (${by(x)})` : ""}`).join(", ")}; loft down <id> ends one` : "";
     console.log((s ? line(id, s) : `${id === DEFAULT ? "loft" : `loft ${id}`} is down`) + also);
   }
 } else if (cmd === "list") {
   const l = live();
   if (asJson) console.log(JSON.stringify(l.map(([id, s]) => json(id, s))));
-  else console.log(l.length ? l.map(([id, s]) => `${id.padEnd(12)} ${s.w}x${s.h} at ${s.x},${s.y} (display ${s.displayId})`).join("\n") : "no loft is up");
+  else console.log(l.length ? l.map(([id, s]) => `${id.padEnd(12)} ${s.w}x${s.h} at ${s.x},${s.y} (display ${s.displayId})${by(s) ? `  ${by(s)}` : ""}`).join("\n") : "no loft is up");
 } else fail("usage", USAGE, 2);

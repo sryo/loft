@@ -202,3 +202,46 @@ test("M7: plain status names the other lofts that are up and who owns them", (t)
   assert.equal(JSON.parse(run("status", "--json").stdout).others, undefined, "--json is unchanged");
   assert.match(run("status", "loft-1").stdout, /^loft loft-1 is up: 1440x900 at 1512,0 \(display \d+\)\n$/, "a named status says only its own");
 });
+
+// --label <text>: who made the loft, kept in its record and shown by list and
+// status, so a loft found up hours later names its maker.
+test("O3: a label is recorded and shown by list, status and --json", (t) => {
+  const { run, rec } = setup(t);
+  const r = run("up", "1280x800", "--new", "--label", "cacho", "--json");
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).label, "cacho");
+  assert.equal(rec("loft-1").label, "cacho");
+  assert.match(run("list").stdout, /^loft-1 +1280x800 at 1512,0 \(display \d+\)  cacho\n$/);
+  assert.match(run("status").stdout, /^loft is down; also up: loft-1 1280x800 \(cacho\); loft down <id> ends one\n$/);
+});
+
+test("O3: a label that isn't plain text starts nothing", (t) => {
+  const { run, home } = setup(t);
+  for (const l of ["", "a b", "x".repeat(41), "a/b"]) {
+    const r = run("up", "1280x800", "--new", "--label", l, "--json");
+    assert.equal(r.status, 2, l);
+    assert.equal(JSON.parse(r.stdout).code, "bad_label");
+  }
+  assert.equal(existsSync(join(home, "lofts")), false);
+});
+
+// Several agents ask at once. Each `up --new` must get its own id and display
+// serial: two picking the same ones left a display no record named.
+test("O4: ups at once each get their own id, serial and record", async (t) => {
+  const { run, rec, home } = setup(t);
+  const env = { ...process.env, LOFT_HOME: home, LOFT_HOLDER: JSON.stringify(["node", FAKE]), LOFT_WAIT_MS: "1500" };
+  const one = (size) => new Promise((resolve) => {
+    const c = spawn("node", [join(ROOT, "loft.mjs"), "up", size, "--new", "--json"], { env });
+    let out = "";
+    c.stdout.on("data", (d) => { out += d; });
+    c.on("exit", () => resolve(JSON.parse(out)));
+  });
+  const got = await Promise.all(["1280x800", "1280x800", "1280x800", "1440x900", "1440x900"].map(one));
+  assert.deepEqual(got.map((g) => g.up), [true, true, true, true, true]);
+  const made = got.map((g) => g.id).sort();
+  assert.deepEqual(made, ["loft-1", "loft-2", "loft-3", "loft-4", "loft-5"]);
+  assert.equal(new Set(made.map((id) => rec(id).serial)).size, 5);
+  assert.equal(new Set(made.map((id) => rec(id).pid)).size, 5);
+  for (const g of got) assert.deepEqual([rec(g.id).w, rec(g.id).h], [g.bounds.w, g.bounds.h]);
+  assert.equal(existsSync(join(home, "up.lock")), false, "the lock is released");
+});

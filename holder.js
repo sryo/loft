@@ -12,8 +12,17 @@ function say(obj) {
   $.NSFileHandle.fileHandleWithStandardOutput.writeData(data);
 }
 
+// Waits by taking the app's events, not by running the run loop alone: only then
+// does this process learn that macOS moved its display (another loft going
+// shifts this one), and CGDisplayBounds stops answering with the old place.
 function spin(seconds) {
-  $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(seconds));
+  const until = $.NSDate.dateWithTimeIntervalSinceNow(seconds);
+  for (;;) {
+    // Every event type (NSEventMaskAny).
+    const e = $.NSApp.nextEventMatchingMaskUntilDateInModeDequeue(0xffffffffffffffff, until, $.NSDefaultRunLoopMode, true);
+    if (!e || e.isNil()) return;
+    $.NSApp.sendEvent(e);
+  }
 }
 
 // The cursor can still reach the loft through the corner the displays share.
@@ -102,10 +111,41 @@ function run(argv) {
   globalThis.__loft = display;
   const owner = Number(argv[3]) || 0;
   if (owner) ObjC.bindFunction("kill", ["int", ["int", "int"]]);
-  let wait = 0.03, checked = Date.now();
+  // An owned loft is its owner's for the windows it parks there, so it also goes
+  // once they are gone: EMPTY_MS after its last window left, or FIRST_MS after it
+  // came up if none ever arrived. A loft with no owner stays until taken down.
+  const EMPTY_MS = 30000, FIRST_MS = 120000;
+  let wait = 0.03, checked = Date.now(), looked = Date.now(), emptySince = Date.now(), seen = false;
   for (;;) {
     spin(wait);
     try { wait = fence(id); } catch (e) { wait = 0.25; }
-    if (owner && Date.now() - checked >= 1000) { checked = Date.now(); if ($.kill(owner, 0) !== 0) return; }
+    if (!owner) continue;
+    const now = Date.now();
+    if (now - checked >= 1000) { checked = now; if ($.kill(owner, 0) !== 0) return; }
+    if (now - looked >= 2000) {
+      looked = now;
+      let n = 1;
+      try { n = windowsOn(id); } catch (e) {}
+      if (n > 0) { seen = true; emptySince = 0; }
+      else if (!emptySince) emptySince = now;
+      else if (now - emptySince >= (seen ? EMPTY_MS : FIRST_MS)) return;
+    }
   }
+}
+
+// How many ordinary windows (layer 0, any app's, hidden and minimized ones too)
+// have their center on the display. Off-screen windows count, so a loft never
+// goes from under a window that would then land on the user's display.
+function windowsOn(id) {
+  const b = $.CGDisplayBounds(id);
+  // 16: kCGWindowListExcludeDesktopElements, over every window (0).
+  const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(16, 0))) || [];
+  let n = 0;
+  for (const w of list) {
+    const r = w.kCGWindowBounds;
+    if (w.kCGWindowLayer !== 0 || !r || r.Width < 50 || r.Height < 50) continue;
+    const cx = r.X + r.Width / 2, cy = r.Y + r.Height / 2;
+    if (cx >= b.origin.x && cx < b.origin.x + b.size.width && cy >= b.origin.y && cy < b.origin.y + b.size.height) n++;
+  }
+  return n;
 }
