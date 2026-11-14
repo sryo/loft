@@ -10,6 +10,7 @@ install.sh        # curl | bash installer: clone or pull into ~/.loft, npm link
 test/             # node:test against a fake holder (test/fakes), no display needed
 bench/probe.mjs   # live probe for every How we know row
 bench/fixture.html# the page the probe drives
+SKILL.md          # for agents: a native app's window on a loft, step by step
 ```
 
 ## How it works
