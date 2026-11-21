@@ -9,6 +9,12 @@ loft gives your agents a screen of their own on your Mac, so their windows stop 
 curl -fsSL https://raw.githubusercontent.com/sryo/loft/main/install.sh | bash
 ```
 
+## Why not just…
+- **Minimize it or let other windows cover it.** Browsers slow a hidden page down and refuse clicks sent to it. On the loft a page's timers ran about 60 times faster than in the same window minimized, at 60 frames a second, and 10 of 10 background clicks landed.
+- **Plug in a second monitor.** Then the windows are in your sight again, and you need the monitor.
+- **Mirror the window into an app.** That puts it back in front of you.
+- **Use a browser with no window.** It doesn't have your own profile and sign-ins.
+
 ## Use
 ```bash
 loft up        # add the hidden monitor (loft up 2560x1440 for another size)
@@ -27,9 +33,7 @@ A loft already up at another size is refused (exit 4) rather than reused at the 
 
 `--owner <pid>` ties a loft to a process: when that process ends, however it ends, the loft goes too. perch uses it for the lofts it makes itself (`new_tab {url, loft:"1280x800"}`), so an agent never has to clean up. An owned loft also goes by itself 30 seconds after its last window closes. `--label <text>` notes who made it, and `loft list` shows it.
 
-loft and [rooms](https://github.com/sryo/rooms) speak the same dialect: names are a letter then up to 30 of a-z, 0-9 and -; sizes are `WIDTHxHEIGHT`; `status <name>` exits 3 when it isn't up; with `--json`, an error is `{ok:false, code, error}` on stdout.
-
-For scripts and agents, `loft status --json` prints `{up, id, displayId, vendor, product, name, bounds}` and exits 3 when the loft is down (`loft up --json` prints the same). You can count on the loft's identity staying the same: vendor `0x6c66`, product `0x7466`, and the `displayId` it reports while up. Its name is `"loft"`, though what macOS shows for it is unverified. The records in `~/Library/Application Support/loft` are stable too: `holder.json` for the default loft, `lofts/<id>.json` for each named one. Its bounds are the ones from `up` and don't follow you rearranging displays.
+For scripts and agents, `--json` prints `{up, id, displayId, vendor, product, name, bounds}`, and `status` exits 3 when the loft is down. The loft's identity is stable: vendor `0x6c66`, product `0x7466`, and the `displayId` it reports while up. Its name is `"loft"`, though what macOS shows for it is unverified. Its record is `holder.json` in `~/Library/Application Support/loft` (`lofts/<id>.json` for a named one), and its bounds are the ones from `up`, which don't follow you rearranging displays. As in [rooms](https://github.com/sryo/rooms), names are a letter then up to 30 of a-z, 0-9 and -, sizes are `WIDTHxHEIGHT`, and with `--json` an error is `{ok:false, code, error}` on stdout.
 
 loft never moves your windows. An agent puts its own windows on the loft and takes them back.
 
